@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <algorithm>
+#include <functional>
+#include <unordered_map>
 
 enum HTTPMethod {
   GET = 0,
@@ -20,6 +22,22 @@ struct HTTPRequest {
   int http_version_minor;
   std::vector<std::pair<std::string, std::string>> headers;
   std::string data;
+};
+
+struct HTTPResponse {
+  int status;
+  int http_version_major;
+  int http_version_minor;
+  std::vector<std::pair<std::string, std::string>> headers;
+  std::string content;
+
+  explicit HTTPResponse(int status_code = 200)
+    : status{status_code},
+      http_version_major{1},
+      http_version_minor{1},
+      headers{},
+      content{}
+  {}
 };
 
 std::experimental::string_view Trim(std::experimental::string_view str) {
@@ -86,6 +104,7 @@ HTTPRequest ParseHTTPRequest(std::experimental::string_view str) {
   // CONTENT
   r.data = std::string{str.substr(0, content_length)};
 
+/*
   // DEBUG PRINT
   std::cout << "METHOD: " << r.method << '\n'
             << "PATH: " << r.path << '\n'
@@ -96,9 +115,73 @@ HTTPRequest ParseHTTPRequest(std::experimental::string_view str) {
     std::cout << '\t' << h.first << ':' << h.second << '\n';
 
   std::cout << "Content(" << content_length << "): \n" << r.data << '\n';
-
+*/
   return r;
 }
+
+struct DispactchKey {
+  HTTPMethod method;
+  std::string path;
+
+  DispactchKey(HTTPMethod m, const std::string &p) : method(m), path(p) {}
+};
+
+bool operator==(const DispactchKey &dk1, const DispactchKey &dk2) {
+  return dk1.method == dk2.method && dk1.path == dk2.path;
+}
+// bool operator<(const DispactchKey &dk1, const DispactchKey &dk2) {
+//   if (dk1.method != dk2.method)
+//     return dk1.method < dk2.method;
+//   return dk1.path < dk2.path;
+//   //return true;
+// }
+
+struct MyHash {
+  size_t operator()(const DispactchKey &dk) const {
+    //return std::hash_val(dk.method, dk.path);
+    std::cout << ">>>>> HASH: " << std::hash<int>()(dk.method) + std::hash<std::string>()(dk.path) << '\n';
+    return std::hash<int>()(dk.method) + std::hash<std::string>()(dk.path);
+  }
+};
+
+class RequestHandler {
+public:
+  typedef std::function<void(const HTTPRequest &req, HTTPResponse &res)> Handler;
+
+  void Get(const std::string &path, Handler h) {
+    RegisterHandler(GET, path, h);
+  }
+  void Post(const std::string &path, Handler h) {
+    RegisterHandler(POST, path, h);
+  }
+
+  void Handle(const HTTPRequest &req, HTTPResponse &res) {
+    std::cout << "Enter Handle()\n";
+    std::cout << m_.size() << '\n';
+    DispactchKey dk{req.method, req.path};
+    auto f = m_[dk];
+    if (f)
+      f(req, res);
+    else
+      res.status = 404;
+      //res.content = "NOT FOUND";
+    //m_[dk](req, res);
+    //m_[req.path](req, res);
+    std::cout << "Leave Handle()\n";
+  }
+
+private:
+  void RegisterHandler(HTTPMethod m, const std::string &path, Handler h) {
+    std::cout << "Enter RegisterHandler\n";
+    DispactchKey dk{m, path};
+    m_[dk] = h;
+    //m_[path] = h;
+    std::cout << "Leave RegisterHandler\n";
+  }
+
+  std::unordered_map<DispactchKey, Handler, MyHash> m_;
+  //std::unordered_map<std::string, Handler> m_;
+};
 
 
 int main(int argc, char **argv) {
@@ -120,16 +203,39 @@ int main(int argc, char **argv) {
   buffer[n] = '\0';
   std::cout << buffer;
 
-  ParseHTTPRequest(buffer);
+  auto request = ParseHTTPRequest(buffer);
 
-  const char *message = "It works!";
+  // ROUTES
+  std::cout << "register\n";
+  RequestHandler h;
+  h.Get("/greeting", [](const HTTPRequest &req, HTTPResponse &res) {
+    std::cout << "--- gretting ---\n";
+    res.content = "Hello world!";
+  });
+
+  h.Post("/register", [](const HTTPRequest &req, HTTPResponse &res) {
+    res.content = "Register";
+  });
+  std::cout << "end register\n";
+
+  // HANDLE REQUEST
+  HTTPResponse response;
+  h.Handle(request, response);
+
+
   std::stringstream ss;
-  ss << "HTTP/1.1 200 OK\n"
-     << "Content-Length: " << strlen(message) << "\r\n"
-     << "\r\n"
-     << message;
+  if (response.status == 200) {
+    const char *message = response.content.data();
+    ss << "HTTP/1.1 200 OK\n"
+      << "Content-Length: " << strlen(message) << "\r\n"
+      << "\r\n"
+      << message;
+  } else {
+    ss << "HTTP/1.1 404 NOT FOUND\n";
+  }
 
   send(conn_sock, ss.str().data(), ss.str().size(), 0);
+
 
   close(conn_sock);
   close(sock);
