@@ -7,6 +7,27 @@
 #include <sys/event.h>
 #include <sys/time.h>
 
+/*
+
+struct kevent {
+  // A kevent is identified by an <ident, filter> pair.
+
+  uintptr_t ident;    // Identifier for this event.
+                      // Might be a descriptor (file, socket, stream), a process ID or a signal number
+  short     filter;   // Filter for event.
+                      // Identifies the kernel filter used to process the respective event.
+                      // There are some pre-defined system filters, such as EVFILT_READ or EVFILT_WRITE.
+  u_short   flags;    // Action flags for kqueue.
+                      // For instance, EV_ADD | EV_ENABLE | EV_ONESHOT would translate to
+                      // "Add the event, enable it and return only the first ocurrence of the filter being triggered.
+                      // After the user retrieves the event from the kqueue, delete it"
+  u_int     fflags;   // Filter flag value
+  intptr_t  data;     // Filter data value
+  void      *udata;   // Opaque user data identifier
+};
+
+*/
+
 int main(int argc, char **argv) {
   int sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
   struct sockaddr_in addr, c_addr;
@@ -53,6 +74,7 @@ int main(int argc, char **argv) {
         char buffer[1024];
         recv(fd, buffer, 1024, 0);
         std::cout << buffer << '\n';
+        send(fd, buffer, strlen(buffer), 0);
         //break;
       }
     }
